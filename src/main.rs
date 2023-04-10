@@ -1,68 +1,47 @@
-mod csv_reader;
-
-use std::{fs, process};
-use opendp::accuracy::accuracy_to_discrete_laplacian_scale;
-use opendp::domains::{AllDomain, VectorDomain};
-use opendp::error::{ExplainUnwrap, Fallible};
-use opendp::transformations::{make_b_ary_tree, make_count_by_categories, make_select_column, make_sized_bounded_mean, make_split_dataframe};
-use opendp::measurements::make_base_discrete_laplace;
-use opendp::metrics::{L2Distance, L1Distance, IntDistance, SymmetricDistance};
-use opendp::traits::{Hashable, Number};
-
-use csv_reader::read_data;
+use std::{
+    error::Error,
+    fs,
+    io
+};
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::{
-    error::Error,
-    io,
-    time::{Duration, Instant},
-};
-use std::fs::File;
-use std::io::{BufReader, Read};
 use tui::{
     backend::{Backend, CrosstermBackend},
+    Frame,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    symbols,
-    text::Span,
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType},
-    Frame, Terminal,
+    style::{Color, Style},
+    Terminal,
+    widgets::{Block, Borders},
 };
 use tui::widgets::BarChart;
 
-fn main() -> Result<(), Box<dyn Error>>  {
-    let accuracy = 25;
-    let theoretical_alpha = 0.5;
-    //* `scale` - Noise scale parameter for the laplace distribution. `scale` == sqrt(2) * standard_deviation.
-    let scale = accuracy_to_discrete_laplacian_scale(accuracy as f64, theoretical_alpha)?;
-    println!("scale: {scale}");
-    let base_dl = make_base_discrete_laplace::<AllDomain<i8>, f64>(scale)?;
-    let result = base_dl.invoke(&0);
-    println!("{}", result.unwrap());
+use crate::dataset::CsvDataSet;
+use crate::noiser::{NoiseApplier, Noiser};
 
-    let categories = (1u8..21).map(|x| x.to_string()).collect::<Vec<_>>();
-    let col_names = Vec::from(["age", "sex", "educ", "race", "income", "married"]);
+mod noiser;
+mod dataset;
 
-    let df_transformer = make_split_dataframe(Option::from(","), col_names)?;
-    let select_col = make_select_column::<_, String>("educ")?;
-    let count_by_education = make_count_by_categories::<L2Distance<u8>, String, u64>(categories.clone(), true).unwrap();
-    let d = "59,1,9,1,0,1\n31,0,1,3,17000,0\n".to_owned();
+fn main() -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string("data/data.csv")?;
-    let mut contents = contents.split("\n").skip(1)
+    // Skip headers and then rejoin the CSV
+    let contents = contents.split("\n").skip(1)
         .map(|x| x.to_string())
         .collect::<Vec<String>>().join("\n");
-    let chain = (df_transformer >> select_col >> count_by_education)?;
-    let res_sensitive = chain.invoke(&contents)?;
-    println!("{:?}", res_sensitive);
 
-    let discrete_lp = make_base_discrete_laplace::<VectorDomain<AllDomain<u64>>, _>(
-        scale
-    )?;
-    let res_noised = discrete_lp.invoke(&res_sensitive)?;
+    let dataset = CsvDataSet {
+        data: contents
+    };
+    let noiser = Noiser::new(&dataset);
+    let aggregate_field = String::from("educ");
+    let aggregated_data = noiser.aggregate_data(&aggregate_field).unwrap();
+    let accuracy = 90;
+    let theoretical_alpha = 0.000005;
+    let noised_data = noiser.noised_data(&aggregated_data, accuracy, theoretical_alpha).unwrap();
+
     // setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -71,7 +50,12 @@ fn main() -> Result<(), Box<dyn Error>>  {
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let res = run_app(&mut terminal, &res_sensitive, &res_noised, &categories);
+    let res = run_app(
+        &mut terminal,
+        &aggregated_data,
+        &noised_data,
+        &dataset.aggregate_buckets(&aggregate_field),
+    );
 
     // restore terminal
     disable_raw_mode()?;

@@ -6,8 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+chrono = { version = "0.4.24", features = ["serde"] }
 crossterm = "0.26.1"
 csv = "1.2.1"
 opendp = { version = "0.6.2", features = ["use-mpfr", "contrib"] }
+rand = { version = "0.8.5" }
 serde = { version = "1.0.159", features = ["derive"] }
+serde_json = "1.0.95"
+thiserror = "1.0.40"
 tui = { version = "0.19.0", features = ["crossterm"] }
