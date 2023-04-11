@@ -7,6 +7,7 @@ use opendp::transformations::{make_count_by_categories, make_select_column, make
 
 use crate::dataset::{CsvDataSet};
 
+#[derive(Clone, Copy)]
 pub struct Noiser<'a> {
     dataset: &'a CsvDataSet,
 }
