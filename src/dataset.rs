@@ -9,7 +9,7 @@ impl CsvDataSet {
         Vec::from(COLUMNS)
     }
 
-    pub fn aggregate_buckets(&self, field: &String) -> Vec<String> {
+    pub fn aggregate_buckets(&self, _field: &String) -> Vec<String> {
         (1u8..21).map(|x| x.to_string()).collect::<Vec<_>>()
     }
 }
