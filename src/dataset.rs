@@ -1,10 +1,10 @@
 const COLUMNS: &'static [&'static str] = &["age", "sex", "educ", "race", "income", "married"];
 
-pub struct CsvDataSet {
-    pub data: String,
+pub struct CsvDataSet<'a> {
+    pub data: &'a String,
 }
 
-impl CsvDataSet {
+impl<'a> CsvDataSet<'a> {
     pub fn columns(&self) -> Vec<&'static str> {
         Vec::from(COLUMNS)
     }

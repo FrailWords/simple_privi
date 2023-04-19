@@ -10,7 +10,6 @@ use crossterm::{
     event::{self, Event as CEvent, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
-use opendp::traits::CollectionSize;
 use tui::{
     backend::CrosstermBackend, Frame,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -24,7 +23,6 @@ use tui::widgets::{BarChart, Wrap};
 
 use crate::dataset::CsvDataSet;
 use crate::noiser::{NoiseApplier, Noiser};
-use crate::NoiseType::{Gaussian, Laplace};
 
 mod noiser;
 mod dataset;
@@ -36,11 +34,7 @@ enum Event<I> {
     Tick,
 }
 
-#[derive(PartialEq)]
-enum NoiseType {
-    Laplace,
-    Gaussian,
-}
+const SENSITIVE_FIELD_TO_AGGREGATE: &'static str = "educ";
 
 fn main() -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string(CSV_FILE_PATH)?;
@@ -50,25 +44,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect::<Vec<String>>().join("\n");
 
     let dataset = CsvDataSet {
-        data: contents
+        data: &contents
     };
-    let noiser = Noiser::new(&dataset);
-    let aggregate_field = String::from("educ");
+    let aggregate_field = String::from(SENSITIVE_FIELD_TO_AGGREGATE);
+    let mut noiser = Noiser::new(&dataset, &aggregate_field);
+    noiser.refresh_data();
     let aggregate_buckets = dataset.aggregate_buckets(&aggregate_field);
-    let accuracy_values: Vec<i64> = (1..=10).collect::<Vec<_>>();
-    let mut initial_accuracy = 0;
-    let mut initial_alpha: f64 = 0.01;
-    let mut aggregated_data = Vec::<u64>::new();
-    let mut noised_data = Vec::<u64>::new();
-    let mut active_noise_type = Laplace;
-
-    // Noise the sensitive data - this is the first time we do this
-    aggregate_data(noiser,
-                   &aggregate_field,
-                   accuracy_values[initial_accuracy],
-                   initial_alpha,
-                   &mut aggregated_data,
-                   &mut noised_data);
 
     /*
     Start of UI related code
@@ -107,11 +88,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         terminal.draw(|rect| {
-            draw_stuff(&aggregate_buckets,
-                       initial_accuracy,
-                       initial_alpha,
-                       &mut aggregated_data,
-                       &mut noised_data,
+            draw_stuff(&noiser,
+                       &aggregate_buckets,
                        &menu_titles,
                        rect);
         })?;
@@ -124,31 +102,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     break;
                 }
                 KeyCode::Char('n') => {
-                    if active_noise_type == Laplace {
-                        active_noise_type = Gaussian;
-                    } else {
-                        active_noise_type = Laplace;
-                    }
+                    noiser.toggle_noise_type();
                 }
                 KeyCode::Char('i') => {
-                    initial_accuracy = (initial_accuracy + 1) % accuracy_values.size();
-                    aggregate_data(noiser,
-                                   &aggregate_field,
-                                   accuracy_values[initial_accuracy],
-                                   initial_alpha,
-                                   &mut aggregated_data,
-                                   &mut noised_data,
-                    );
+                    noiser.increase_noise();
                 }
                 KeyCode::Char('d') => {
-                    initial_accuracy = (initial_accuracy + accuracy_values.size() - 1) % accuracy_values.size();
-                    aggregate_data(noiser,
-                                   &aggregate_field,
-                                   accuracy_values[initial_accuracy],
-                                   initial_alpha,
-                                   &mut aggregated_data,
-                                   &mut noised_data,
-                    );
+                    noiser.decrease_noise();
                 }
                 _ => {}
             },
@@ -159,11 +119,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn draw_stuff(aggregate_buckets: &Vec<String>,
-              current_accuracy: usize,
-              alpha: f64,
-              mut aggregated_data: &mut Vec<u64>,
-              mut noised_data: &mut Vec<u64>,
+fn draw_stuff(noiser: &Noiser,
+              aggregate_buckets: &Vec<String>,
               menu_titles: &Vec<&str>,
               rect: &mut Frame<CrosstermBackend<Stdout>>,
 ) {
@@ -181,17 +138,13 @@ fn draw_stuff(aggregate_buckets: &Vec<String>,
         )
         .split(chunks[0]);
 
-
     let menu = menu_titles
         .iter()
         .map(|t| {
             let (first, rest) = t.split_at(1);
             Spans::from(vec![
                 Span::styled(
-                    first,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::UNDERLINED),
+                    first, Style::default().add_modifier(Modifier::UNDERLINED),
                 ),
                 Span::styled(rest, Style::default().fg(Color::DarkGray)),
             ])
@@ -201,12 +154,11 @@ fn draw_stuff(aggregate_buckets: &Vec<String>,
     let tabs = Tabs::new(menu)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Cyan))
-        .highlight_style(Style::default().fg(Color::Yellow))
         .divider(Span::raw("|"));
 
     rect.render_widget(tabs, header_chunks[0]);
 
-    let noise_params = laplace_noise_params(current_accuracy, alpha);
+    let noise_params = noise_params(noiser);
     let noise_block = Paragraph::new(noise_params)
         .block(Block::default().title("Noise Params").borders(Borders::ALL))
         .style(Style::default().fg(Color::Green))
@@ -214,12 +166,12 @@ fn draw_stuff(aggregate_buckets: &Vec<String>,
         .wrap(Wrap { trim: true });
     rect.render_widget(noise_block, header_chunks[1]);
 
-    draw_graphs(aggregate_buckets, aggregated_data, noised_data, rect, chunks);
+    draw_graphs(aggregate_buckets, &noiser.aggregated_data, &noiser.noised_data, rect, chunks);
 }
 
 fn draw_graphs(aggregate_buckets: &Vec<String>,
-               aggregated_data: &mut Vec<u64>,
-               noised_data: &mut Vec<u64>,
+               aggregated_data: &Vec<u64>,
+               noised_data: &Vec<u64>,
                rect: &mut Frame<CrosstermBackend<Stdout>>,
                chunks: Vec<Rect>,
 ) {
@@ -258,22 +210,17 @@ fn draw_graphs(aggregate_buckets: &Vec<String>,
     rect.render_widget(right, graph_chunks[1]);
 }
 
-fn laplace_noise_params(current_accuracy: usize, alpha: f64) -> Vec<Spans<'static>> {
+fn noise_params(noiser: &Noiser) -> Vec<Spans<'static>> {
     vec![
         Spans::from(vec![
-            Span::styled(format!("Accuracy: {}", current_accuracy), Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Type: {}", noiser.noise_type),
+                         Style::default().fg(Color::Black)
+                             .add_modifier(Modifier::BOLD)),
         ]),
         Spans::from(vec![
-            Span::styled(format!("Alpha: {}", alpha), Style::default().fg(Color::Black).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Noise: {}", noiser.accuracy),
+                         Style::default().fg(Color::Black)
+                             .add_modifier(Modifier::BOLD)),
         ]),
     ]
-}
-
-fn aggregate_data(noiser: Noiser, aggregate_field: &String, accuracy: i64, alpha: f64, aggregated_data: &mut Vec<u64>, noised_data: &mut Vec<u64>) {
-    aggregated_data.clear();
-    noised_data.clear();
-    aggregated_data.append(&mut noiser.aggregate_data(&aggregate_field).unwrap());
-    let accuracy = accuracy;
-    let theoretical_alpha = alpha;
-    noised_data.append(&mut noiser.noised_data(&aggregated_data, accuracy, theoretical_alpha).unwrap())
 }

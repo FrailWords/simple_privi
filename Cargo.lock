@@ -47,6 +47,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ary"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "933631ad13c4a74023de0fc68ccfaa69147020ee3ab5d821a4e6d93ba28e3059"
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -871,6 +877,7 @@ dependencies = [
 name = "simple_privi"
 version = "0.1.0"
 dependencies = [
+ "ary",
  "chrono",
  "crossterm 0.26.1",
  "csv",
