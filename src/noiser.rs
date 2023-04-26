@@ -74,20 +74,23 @@ impl<'a> Noiser<'a> {
     }
 
     fn noised_data(&self, aggregated_data: &Vec<u64>) -> Option<Vec<u64>> {
-        //* `scale` - Noise scale parameter for the laplace distribution. `scale` == sqrt(2) * standard_deviation.
-        if self.noise_type == Laplace {
-            let scale = accuracy_to_discrete_laplacian_scale(self.accuracy as f64, self.alpha).unwrap();
-            let discrete_lp = make_base_discrete_laplace::<VectorDomain<AllDomain<u64>>, _>(
-                scale
-            ).ok()?;
-            Option::from(discrete_lp.invoke(&aggregated_data).unwrap())
-        } else {
-            let scale = accuracy_to_discrete_gaussian_scale(self.accuracy as f64, self.alpha).unwrap();
-            let discrete_gaussian =
-                make_base_discrete_gaussian::<VectorDomain<AllDomain<u64>>, ZeroConcentratedDivergence<f64>, f64>(
+        match self.noise_type {
+            Laplace => {
+                // sensitivity / epsilon
+                let scale = accuracy_to_discrete_laplacian_scale(self.accuracy as f64, self.alpha).unwrap();
+                let discrete_lp = make_base_discrete_laplace::<VectorDomain<AllDomain<u64>>, _>(
                     scale
                 ).ok()?;
-            Option::from(discrete_gaussian.invoke(&aggregated_data).unwrap())
+                Option::from(discrete_lp.invoke(&aggregated_data).unwrap())
+            }
+            Gaussian => {
+                let scale = accuracy_to_discrete_gaussian_scale(self.accuracy as f64, self.alpha).unwrap();
+                let discrete_gaussian =
+                    make_base_discrete_gaussian::<VectorDomain<AllDomain<u64>>, ZeroConcentratedDivergence<f64>, f64>(
+                        scale
+                    ).ok()?;
+                Option::from(discrete_gaussian.invoke(&aggregated_data).unwrap())
+            }
         }
     }
 }
@@ -98,7 +101,7 @@ impl<'a> NoiseApplier<'a> for Noiser<'a> {
             dataset,
             aggregate_field,
             noise_type: Laplace,
-            accuracy: 25,
+            accuracy: 0,
             alpha: 0.05,
             aggregated_data: Vec::<u64>::new(),
             noised_data: Vec::<u64>::new(),
