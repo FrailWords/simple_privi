@@ -34,9 +34,10 @@ enum Event<I> {
     Tick,
 }
 
-const SENSITIVE_FIELD_TO_AGGREGATE: &'static str = "educ";
-
 fn main() -> Result<(), Box<dyn Error>> {
+    let education_sensitive_field_to_aggregate: String = String::from("educ");
+    let income_sensitive_field_to_aggregate: String = String::from("income");
+
     let contents = fs::read_to_string(CSV_FILE_PATH)?;
     // Skip headers and then rejoin the CSV
     let contents = contents.split("\n").skip(1)
@@ -46,10 +47,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let dataset = CsvDataSet {
         data: &contents
     };
-    let aggregate_field = String::from(SENSITIVE_FIELD_TO_AGGREGATE);
-    let mut noiser = Noiser::new(&dataset, &aggregate_field);
+    let aggregate_field = &education_sensitive_field_to_aggregate;
+    let mut noiser = Noiser::new(&dataset, aggregate_field);
     noiser.refresh_data();
-    let aggregate_buckets = dataset.aggregate_buckets(&aggregate_field);
+    let aggregate_buckets = dataset.aggregate_buckets(aggregate_field);
 
     /*
     Start of UI related code
@@ -84,7 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
 
-    let menu_titles = vec!["Noise Type", "Increase Noise", "Decrease Noise", "Quit"];
+    let menu_titles = vec!["Noise Type", "Increase Noise", "Decrease Noise", "Switch Field", "Quit"];
 
     loop {
         terminal.draw(|rect| {
@@ -109,6 +110,19 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 KeyCode::Char('d') => {
                     noiser.decrease_noise();
+                }
+                KeyCode::Char('s') => {
+                    match noiser.aggregate_field.as_str() {
+                        "educ"=> {
+                            noiser.aggregate_field = &income_sensitive_field_to_aggregate;
+                        },
+                        "income" => {
+                            noiser.aggregate_field = &education_sensitive_field_to_aggregate;
+                        },
+                        _ => {}
+                    }
+                    noiser.accuracy = 0;
+                    noiser.refresh_data();
                 }
                 _ => {}
             },
@@ -219,6 +233,11 @@ fn noise_params(noiser: &Noiser) -> Vec<Spans<'static>> {
         ]),
         Spans::from(vec![
             Span::styled(format!("Noise: {}", noiser.accuracy),
+                         Style::default().fg(Color::Black)
+                             .add_modifier(Modifier::BOLD)),
+        ]),
+        Spans::from(vec![
+            Span::styled(format!("Field: {}", noiser.aggregate_field),
                          Style::default().fg(Color::Black)
                              .add_modifier(Modifier::BOLD)),
         ]),

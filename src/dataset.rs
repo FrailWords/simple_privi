@@ -9,7 +9,10 @@ impl<'a> CsvDataSet<'a> {
         Vec::from(COLUMNS)
     }
 
-    pub fn aggregate_buckets(&self, _field: &String) -> Vec<String> {
-        (1u8..21).map(|x| x.to_string()).collect::<Vec<_>>()
+    pub fn aggregate_buckets(&self, field: &String) -> Vec<String> {
+        match field.as_str() {
+            "income" => (10000u32..210000).step_by(10000).map(|x| x.to_string()).collect::<Vec<_>>(),
+            &_ => (1u8..21).map(|x| x.to_string()).collect::<Vec<_>>(),
+        }
     }
 }
